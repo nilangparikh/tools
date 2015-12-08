@@ -1,77 +1,103 @@
-#! /bin/bash -eu
+#!/bin/bash -u
 
 SRC_DIR=`pwd`/src
 CD_FILE=`pwd`/Comedeps
+TMP=$(mktemp -t come_deps)
 if [ ! -f ${CD_FILE} ];
 then
-    echo "No Comedeps file at ${CD_FILE}"
-    exit 2
+  echo "No Comedeps file at ${CD_FILE}"
+  exit 2
 fi
 
 cat ${CD_FILE} | while read line
 do
-    echo "Loading ${line}"
+  echo "Loading ${line}" >> ${TMP} 2>&1
 
-    dep=( ${line} )
-    pkg=${dep[0]}
-    vcs=${dep[1]}
-    url=${dep[2]}
-    hash=${dep[3]}
-    # you can specify a branch as a fifth parameter if the hash is not
-    # on master -- if you don't do this, then people who don't have that
-    # branch already checked out will fail to fetch the specified hash
-    branch=${dep[4]-master}
+  dep=( ${line} )
+  pkg=${dep[0]}
+  vcs=${dep[1]}
+  url=${dep[2]}
+  hash=${dep[3]}
+  # you can specify a branch as a fifth parameter if the hash is not
+  # on master -- if you don't do this, then people who don't have that
+  # branch already checked out will fail to fetch the specified hash
+  branch=${dep[4]-master}
 
-    if [ -z ${hash} ]
-    then
-	echo "Must specify a commit hash/revision number, got[${hash}]"
-	exit 3
-    fi
+  if [ -z ${hash} ]
+  then
+    echo "Must specify a commit hash/revision number, got[${hash}]"
+    exit 3
+  fi
 
-    dir=${SRC_DIR}/${pkg}
-    if [ -d ${dir} ];
-    then
-	echo "Package[${pkg}] already exists in dir[${dir}]"
-    else
-	mkdir -p `dirname ${dir}`
-	case ${vcs} in
-	    git)
-		echo "Cloning git repository[${url}] to dir[${dir}]"
-		git clone ${url} ${dir}
-		;;
-	    bzr)
-		echo "Cloning bazaar repository[${url}] to dir[${dir}]"
-		bzr branch ${url} ${dir}
-		;;
-		hg)
-		echo "Cloning hg repository[${url}] to dir[${dir}]"
-		hg clone -r ${hash} ${url} ${dir}
-		;;
-	    *)
-		echo "Unknown vcs system[${vcs}].  Fix type or update script"
-		exit 4
-		;;
-	esac
-    fi
-
-    echo "Checking out revision ${hash}"
+  dir=${SRC_DIR}/${pkg}
+  if [ ! -d ${dir} ];
+  then
+    mkdir -p `dirname ${dir}`
+    
     case ${vcs} in
-	git)
-	    cd ${dir}
-        git fetch --prune --tags
-        git checkout --quiet ${branch}
-        git pull --quiet origin ${branch}
-        git checkout --quiet ${hash}
+    git)
+      git clone ${url} ${dir} >> ${TMP} 2>&1
+      ;;
+	  bzr)
+  		bzr branch -q ${url} ${dir} >> ${TMP} 2>&1
+  		;;
+		hg)
+  		hg clone -r ${hash} ${url} ${dir} >> ${TMP} 2>&1
+  		;;
+	  *)
+  		echo "Unknown vcs system[${vcs}].  Fix type or update script"
+  		exit 4
+  		;;
+	  esac
+    STATUS=${?}
+    if [ ${STATUS} != 0 ]; then
+      cat ${TMP}
+      exit ${STATUS}
+    fi
+
+    cd ${dir}
+
+    case ${vcs} in
+  	git)
+      git fetch --prune --tags >> ${TMP} 2>&1
+      STATUS=${?}
+      if [ ${STATUS} != 0 ]; then
+        cat ${TMP}
+        exit ${STATUS}
+      fi
+      git checkout --quiet ${branch} >> ${TMP} 2>&1
+      STATUS=${?}
+      if [ ${STATUS} != 0 ]; then
+        cat ${TMP}
+        exit ${STATUS}
+      fi
+      git pull --quiet origin ${branch} >> ${TMP} 2>&1
+      STATUS=${?}
+      if [ ${STATUS} != 0 ]; then
+        cat ${TMP}
+        exit ${STATUS}
+      fi
+      git checkout --quiet ${hash} >> ${TMP} 2>&1
+      STATUS=${?}
+      if [ ${STATUS} != 0 ]; then
+        cat ${TMP}
+        exit ${STATUS}
+      fi
 	    ;;
-	bzr)
-	    cd ${dir}; bzr up -r ${hash}
+  	bzr)
+      bzr up -r ${hash} >> ${TMP} 2>&1
+      STATUS=${?}
+      if [ ${STATUS} != 0 ]; then
+        cat ${TMP}
+        exit ${STATUS}
+      fi
 	    ;;
-	hg)
-	    echo "hg vcs already has -r [${hash}]"
+  	hg)
 	    ;;
-	*)
+  	*)
 	    echo "Unknown vcs system[${vcs}].  Fix type or update script"
 	    exit 4
 	    ;;
     esac
+  fi
 done
