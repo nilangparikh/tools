@@ -38,8 +38,6 @@
 # $ curl -f -S --get http://localhost:8009/auth/status
 # curl: (22) The requested URL returned error: 404 Not Found
 
-
-
 tp_warmup() {
     export TP_PIDS=
 }
@@ -54,12 +52,18 @@ tp_kill() {
     kill $TP_mongo
 }
 
+tp_stop() {
+    NAME=TP_${1/-/}    # remove any dashes from the name
+    eval TASK=\$${NAME} # and retrieve its PID
+    kill $TASK
+    # remove the task we just killed from the list of PIDs
+    export TP_PIDS=${TP_PIDS/ $TASK/}
+}
+
 # kills and restarts one of the tasks by name -- ex: tp_restart jellyfish
 tp_restart() {
     NAME=TP_${1/-/}    # remove any dashes from the name
     eval TASK=\$${NAME} # and retrieve its PID
-    echo "arg $1 -- name $NAME -- task $TASK"
-    echo "Restarting $1 -- task  $TASK"
     kill  $TASK
     # remove the task we just killed from the list of PIDs
     export TP_PIDS=${TP_PIDS/ $TASK/}
@@ -80,22 +84,23 @@ tp_check() {
 }
 
 tp_start_server() {   # expects servername, start name
-    echo "Starting $1"
     cd $1 || return
     # use the first line if you want individual logs, the 2nd if you want to aggregate them.
-    #node $2 2>&1 > ../$1.log &
-    node $2 2>&1 >> ../server.log &
+    # LOG=../$1.log
+    LOG=../server.log
+    if [ -f node_modules/.bin/bunyan ]; then
+      node ../$1/$2 2>&1 > >(node_modules/.bin/bunyan >> ${LOG}) &
+    else
+      node ../$1/$2 2>&1 >> ${LOG} &
+    fi
     cd ..
     PIDDY=$!
-    echo "Started $1, pid ${PIDDY}"
     export TP_PIDS="$TP_PIDS $PIDDY"
     NAME=TP_${1/-/}    # remove any dashes from the name
     export $NAME=$PIDDY
-    sleep 1
 }
 
 tp_go_server() {
-    echo "Starting $1"
     cd $1 || return
     PATH=${PATH}:../tools/ ./build
     EXIT_CODE=$?
@@ -104,11 +109,9 @@ tp_go_server() {
 	#./bin/$1 > ../$1.log 2>&1 &
 	./dist/$1 >> ../server.log 2>&1  &
 	PIDDY=$!
-	echo "Started $1, pid ${PIDDY}"
 	export TP_PIDS="$TP_PIDS $PIDDY"
     NAME=TP_${1/-/}    # remove any dashes from the name
     export $NAME=$PIDDY
-	sleep 1
     fi
     cd ..
 }
@@ -224,7 +227,7 @@ tp_jellyfish() {
     export SERVICE_NAME=jellyfish-local
     export SERVE_STATIC=dist
     # so that we can validate the version of the uploader being used
-    export MINIMUM_UPLOADER_VERSION="0.99.0"
+    export MINIMUM_UPLOADER_VERSION="0.266.0"
     # the _schemaVersion that jellyfish will produce
     export SCHEMA_VERSION=1
     # Encryption salt for raw uploads
